@@ -1,1 +1,4 @@
 /S1/
+*.png
+*.csv
+.venv
