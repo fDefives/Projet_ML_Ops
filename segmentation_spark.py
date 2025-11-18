@@ -6,12 +6,10 @@ import numpy as np
 import io
 import os
 import time
-print("Le script a démarré")
-time_start=time.time()
+
 # Dossiers (dans le conteneur)
 input_folder = "data/lot1_images"
 output_folder = "data/lot1_resized"
-
 target_size = (64, 64)
 
 os.makedirs(output_folder, exist_ok=True)
@@ -32,7 +30,7 @@ def segment_and_resize(image_binary):
         y_min, y_max = ys.min(), ys.max()
         cropped = img.crop((x_min, y_min, x_max + 1, y_max + 1))
     else:
-        cropped = img  # image vide → pas de crop
+        cropped = img  # image entièrement blanche → pas de crop
 
     resized = cropped.resize(target_size)
 
@@ -43,29 +41,36 @@ def segment_and_resize(image_binary):
 segment_udf = udf(segment_and_resize, BinaryType())
 
 if __name__ == "__main__":
-    spark = SparkSession.builder \
-        .appName("ImageSegmentation") \
-        .master("local[*]") \
-        .getOrCreate()
+    print("Le script a démarré")
+    time_start = time.time()
 
-    # Lecture des images : Spark attend un dossier
+    spark = (
+        SparkSession.builder
+        .appName("ImageSegmentation")
+        .master("local[*]")
+        .config("spark.driver.memory", "8g")     # mémoire pour le driver
+        .config("spark.executor.memory", "8g")   # mémoire pour les tâches
+        .getOrCreate()
+    )
+
+    # Lecture des images
     df = spark.read.format("image").load(input_folder)
+
+    # Optionnel : répartir sur plus de partitions pour éviter les gros paquets
+    df = df.repartition(16)
 
     # Application du traitement
     processed_df = df.withColumn("processed", segment_udf(col("image.data")))
 
-    # Récupération côté Python pour sauvegarde
-    rows = processed_df.select("image.origin", "processed").collect()
-
-    for row in rows:
-        # origin = chemin complet dans le conteneur -> on ne garde que le nom de fichier
+    # Sauvegarde progressive (sans collect)
+    for row in processed_df.select("image.origin", "processed").toLocalIterator():
         filename = os.path.basename(row["origin"])
         out_path = os.path.join(output_folder, filename)
-        print("-> Saving:", out_path, "size:", len(row["processed"]) if row["processed"] else "None")
         with open(out_path, "wb") as f:
             f.write(row["processed"])
+        # print("Saved:", out_path)  # décommente si tu veux voir passer les fichiers
 
     spark.stop()
+    time_end = time.time()
     print("Traitement terminé.")
-time_end=time.time()
-print("Le temps d'exécution est de :",time_end-time_start)
+    print("Le temps d'exécution est de :", time_end - time_start, "secondes")
