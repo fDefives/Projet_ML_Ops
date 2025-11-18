@@ -1,4 +1,6 @@
-# MLOps## Problème de classification : 
+# MLOps
+
+## Problème de classification : 
 
 - Barbe : oui/non
 - Moustache : oui/non
@@ -12,4 +14,4 @@
     moustache 1
     Couleur 5
     Lunette 1
-    taiille cheveux 3
+    taille cheveux 3
