@@ -1,13 +1,13 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import udf, col
 from pyspark.sql.types import BinaryType
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import numpy as np
 import io
 import os
 import time
 
-# Dossiers (dans le conteneur)
+# Dossiers (dans le conteneur) 
 input_folder = "data/lot1_images"
 output_folder = "data/lot1_resized"
 target_size = (64, 64)
@@ -15,8 +15,11 @@ target_size = (64, 64)
 os.makedirs(output_folder, exist_ok=True)
 
 def segment_and_resize(image_binary):
-    # image_binary = contenu binaire de l'image lu par Spark
-    img = Image.open(io.BytesIO(image_binary)).convert("RGB")
+    try:
+        img = Image.open(io.BytesIO(image_binary)).convert("RGB")
+    except UnidentifiedImageError:
+        # Si l'image est corrompue ou non lisible
+        return None
 
     gray = img.convert("L")
     arr = np.array(gray)
@@ -48,29 +51,31 @@ if __name__ == "__main__":
         SparkSession.builder
         .appName("ImageSegmentation")
         .master("local[*]")
-        .config("spark.driver.memory", "8g")     # mémoire pour le driver
-        .config("spark.executor.memory", "8g")   # mémoire pour les tâches
+        .config("spark.driver.memory", "8g")
+        .config("spark.executor.memory", "8g")
         .getOrCreate()
     )
 
-    # Lecture des images
-    df = spark.read.format("image").load(input_folder)
+    # Lecture des images PNG
+    df = spark.read.format("binaryFile") \
+        .option("recursiveFileLookup", "true") \
+        .load(input_folder) \
+        .filter(col("length") > 0) \
+        .filter(col("path").endswith(".png"))
 
-    # Optionnel : répartir sur plus de partitions pour éviter les gros paquets
     df = df.repartition(16)
 
-    # Application du traitement
-    processed_df = df.withColumn("processed", segment_udf(col("image.data")))
+    processed_df = df.withColumn("processed", segment_udf(col("content")))
 
-    # Sauvegarde progressive (sans collect)
-    for row in processed_df.select("image.origin", "processed").toLocalIterator():
-        filename = os.path.basename(row["origin"])
-        out_path = os.path.join(output_folder, filename)
-        with open(out_path, "wb") as f:
-            f.write(row["processed"])
-        # print("Saved:", out_path)  # décommente si tu veux voir passer les fichiers
+    # Sauvegarde progressive
+    for row in processed_df.select("path", "processed").toLocalIterator():
+        if row["processed"] is not None:
+            filename = os.path.basename(row["path"])
+            out_path = os.path.join(output_folder, filename)
+            with open(out_path, "wb") as f:
+                f.write(row["processed"])
 
     spark.stop()
     time_end = time.time()
     print("Traitement terminé.")
-    print("Le temps d'exécution est de :", time_end - time_start, "secondes")
+    print("Temps d'exécution :", time_end - time_start, "secondes")
