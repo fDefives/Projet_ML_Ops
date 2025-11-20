@@ -53,7 +53,7 @@ HAIR_MAP_CSV = "hair.csv"
 TARGET_SIZE = (64, 64)
 BATCH_SIZE = 64
 LR = 1e-3
-EPOCHS = 10
+EPOCHS = 5
 N_SPLITS = 5
 SEED = 42
 
@@ -479,7 +479,7 @@ def train_kfold(dataset, n_splits, epochs, batch_size, lr, device):
                 mlflow.log_metric("mean_acc", mean_acc)
 
                 # log modèle pour ce fold
-                mlflow.pytorch.log_model(model, artifact_path="model")
+                mlflow.pytorch.log_model(model, name="model")
 
                 if mean_acc > best_global_acc:
                     best_global_acc = mean_acc
