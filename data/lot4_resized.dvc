@@ -1,0 +1,6 @@
+outs:
+- md5: e80526993a018669553c6b03c86a15e4.dir
+  size: 26914365
+  nfiles: 4374
+  hash: md5
+  path: lot4_resized
