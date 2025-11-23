@@ -1,0 +1,6 @@
+outs:
+- md5: dd34d22a418202c348687ec33aafe1c9.dir
+  size: 97629092
+  nfiles: 16456
+  hash: md5
+  path: lot3_resized
