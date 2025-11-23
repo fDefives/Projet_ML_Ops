@@ -15,3 +15,7 @@
     Couleur 5
     Lunette 1
     taille cheveux 3
+
+## Start MLFLowUI
+
+mlflow ui --backend-store-uri sqlite:///mlflow.db
