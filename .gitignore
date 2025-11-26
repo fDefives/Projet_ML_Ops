@@ -3,3 +3,4 @@ venv
 venv/*
 
 mlruns/*
+/cnn_multitask_model.pth
