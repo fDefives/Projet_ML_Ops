@@ -8,7 +8,6 @@ import sys
 # pick_up_RandomForAnnote.py
 # Choisit N images aléatoires dans lot1 et lot2 et écrit les noms (sans .jpg) une par ligne.
 
-
 def collect_images(dirs, exts):
     files = []
     for d in dirs:
@@ -36,6 +35,22 @@ def main():
 
     imgs = collect_images(args.dirs, set(e.lower() for e in args.exts))
     total = len(imgs)
+    # supprimer les doublons basés sur le nom (sans extension), garder la première occurrence
+    seen = set()
+    unique_imgs = []
+    duplicates = 0
+    for p in imgs:
+        key = p.stem
+        if key not in seen:
+            seen.add(key)
+            unique_imgs.append(p)
+        else:
+            duplicates += 1
+    if duplicates:
+        print(f"{duplicates} doublon(s) supprimé(s) (même nom sans extension).", file=sys.stderr)
+    imgs = unique_imgs
+    total = len(imgs)
+
     if total == 0:
         print("Aucune image trouvée. Vérifiez les dossiers et extensions.", file=sys.stderr)
         sys.exit(1)
