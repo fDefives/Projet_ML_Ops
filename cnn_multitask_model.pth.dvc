@@ -1,0 +1,5 @@
+outs:
+- md5: 6d79ac68b6e2fac7be14f1fa862a9009
+  size: 8781005
+  hash: md5
+  path: cnn_multitask_model.pth
