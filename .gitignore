@@ -6,3 +6,6 @@ mlruns/*
 /cnn_multitask_model.pth
 
 /data
+
+/airflow/logs/*
+/airflow/data/*
