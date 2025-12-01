@@ -9,3 +9,6 @@ mlruns/*
 
 /airflow/logs/*
 /airflow/data/*
+
+/data/*
+
