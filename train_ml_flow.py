@@ -17,6 +17,7 @@ import time
 import numpy as np
 import pandas as pd
 from PIL import Image
+from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
 
 import torch
 import torch.nn as nn
@@ -51,6 +52,17 @@ LR = 1e-3
 EPOCHS = 2
 N_SPLITS = 5
 SEED = 42
+
+# ---------------- HYPEROPT CONFIG ----------------
+HYPEROPT_MAX_EVALS = 20  # nombre d'essais
+
+space = {
+    "lr": hp.loguniform("lr", np.log(1e-4), np.log(5e-3)),
+    "batch_size": hp.choice("batch_size", [64, 128, 256]),
+    # si tu veux aussi tuner le nombre d'époques :
+    # "epochs": hp.choice("epochs", [2, 3, 5])
+}
+
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -479,10 +491,54 @@ def train_kfold(dataset, n_splits, epochs, batch_size, lr, device):
     print(f"\n[TRAIN] Finished. best_mean_acc={best_mean_acc}, best_fold={best_info.get('fold')}")
     return best_state, best_info
 
+def hyperopt_objective(params, dataset):
+    """
+    Fonction objectif pour Hyperopt.
+    params: dict avec lr, batch_size, ...
+    dataset: FaceDataset déjà construit
+    """
+    lr = float(params["lr"])
+    batch_size = int(params["batch_size"])
+    # si tu tunes aussi epochs :
+    # epochs = int(params["epochs"])
+    epochs = EPOCHS  # ou bien prends depuis params si tu as ajouté dans space
+
+    print(f"\n[HYPEROPT] Trial avec lr={lr:.5f}, batch_size={batch_size}, epochs={epochs}")
+
+    # On appelle ton train_kfold existant.
+    # train_kfold crée déjà un run MLflow parent + runs imbriqués par fold.
+    best_state, best_info = train_kfold(
+        dataset=dataset,
+        n_splits=N_SPLITS,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        device=DEVICE
+    )
+
+    # best_info["mean_acc"] est la métrique qu'on veut maximiser
+    mean_acc = best_info.get("mean_acc", 0.0)
+    loss = 1.0 - mean_acc  # Hyperopt MINIMISE la loss
+
+    # Tu peux sauvegarder le meilleur modèle de ce trial ici si tu veux,
+    # mais attention ça va être fait à chaque essai. On peut le laisser
+    # gérer plus tard si besoin.
+
+    return {
+        "loss": loss,
+        "status": STATUS_OK,
+        # tu peux loguer ce que tu veux en plus
+        "mean_acc": mean_acc,
+        "params": params,
+    }
+
 # ---------------- MAIN ----------------
+
 def main():
     # 1) preproc images (skip if exists)
-    resized_exists = os.path.isdir(RESIZED_IMAGES_DIR) and any(f.lower().endswith(".png") for f in os.listdir(RESIZED_IMAGES_DIR))
+    resized_exists = os.path.isdir(RESIZED_IMAGES_DIR) and any(
+        f.lower().endswith(".png") for f in os.listdir(RESIZED_IMAGES_DIR)
+    )
     if not resized_exists:
         print("Running image preproc...")
         segment_and_resize_images(RAW_IMAGES_DIR, RESIZED_IMAGES_DIR, TARGET_SIZE)
@@ -511,7 +567,6 @@ def main():
     if not os.path.isdir(RESIZED_IMAGES_DIR):
         raise RuntimeError(f"Missing resized dir: {RESIZED_IMAGES_DIR}")
 
-    # default transform (you can adjust mean/std)
     transform = T.Compose([
         T.Resize(TARGET_SIZE),
         T.ToTensor()
@@ -522,23 +577,57 @@ def main():
     if len(dataset) < 2:
         raise RuntimeError("Dataset too small for k-fold")
 
-    # 4) training
-    best_state, best_info = train_kfold(dataset, n_splits=N_SPLITS, epochs=EPOCHS, batch_size=BATCH_SIZE, lr=LR, device=DEVICE)
+    # -------- HYPEROPT: recherche de hyperparamètres --------
+    trials = Trials()
 
-    # 5) save best state locally + log artifact
-    if best_state is not None:
-        model_path = "cnn_multitask_best.pth"
-        torch.save(best_state, model_path)
-        print(f"[SAVE] saved best state to {model_path}")
+    # wrapper pour passer dataset à hyperopt_objective
+    def objective_with_dataset(params):
+        return hyperopt_objective(params, dataset)
 
-        # log artifact into MLflow (outside of runs, it will go to last active experiment)
+    best = fmin(
+        fn=objective_with_dataset,
+        space=space,
+        algo=tpe.suggest,
+        max_evals=HYPEROPT_MAX_EVALS,
+        trials=trials,
+        rstate=np.random.default_rng(SEED)
+    )
+
+    print("\n[HYPEROPT] Meilleurs hyperparamètres trouvés :", best)
+
+    # Optionnel : récupérer la meilleure trial avec les infos complètes
+    best_trial = sorted(trials.results, key=lambda r: r["loss"])[0]
+    print(f"[HYPEROPT] Best mean_acc={best_trial['mean_acc']:.4f} avec params={best_trial['params']}")
+
+    # Ici, si tu veux, tu peux REENTRAÎNER un modèle final avec ces meilleurs params
+    # et sauvegarder le state_dict + log artifact MLflow proprement :
+    best_lr = float(best_trial["params"]["lr"])
+    best_batch_size = int(best_trial["params"]["batch_size"])
+    # best_epochs = int(best_trial["params"]["epochs"]) si tu tunes epochs
+
+    final_state, final_info = train_kfold(
+        dataset=dataset,
+        n_splits=N_SPLITS,
+        epochs=EPOCHS,
+        batch_size=best_batch_size,
+        lr=best_lr,
+        device=DEVICE
+    )
+
+    if final_state is not None:
+        model_path = "cnn_multitask_best_final.pth"
+        torch.save(final_state, model_path)
+        print(f"[SAVE] saved best final state to {model_path}")
+
         try:
-            mlflow.log_artifact(model_path, artifact_path="best_model")
-            print("[MLFLOW] best model artifact logged")
+            # On rouvre un run MLflow juste pour loguer ce modèle final
+            with mlflow.start_run(run_name="best_model_final"):
+                mlflow.log_param("final_lr", best_lr)
+                mlflow.log_param("final_batch_size", best_batch_size)
+                mlflow.log_metric("final_best_mean_acc", final_info.get("mean_acc", 0.0))
+                mlflow.log_artifact(model_path, artifact_path="best_model")
+                print("[MLFLOW] best final model artifact logged")
         except Exception as e:
-            print("[MLFLOW] Warning: failed to log artifact:", e)
+            print("[MLFLOW] Warning: failed to log final artifact:", e)
     else:
         print("[SAVE] No best model found")
-
-if __name__ == "__main__":
-    main()
