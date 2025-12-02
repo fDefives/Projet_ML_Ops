@@ -8,8 +8,8 @@ import os
 import time
 
 # Dossiers (dans le conteneur) 
-input_folder = "data/lot1_images"
-output_folder = "data/lot1_resized"
+input_folder = "data/lot4_images"
+output_folder = "data/lot4_resized"
 target_size = (64, 64)
 
 os.makedirs(output_folder, exist_ok=True)

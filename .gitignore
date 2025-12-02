@@ -1,8 +1,14 @@
 .venv
 venv
 venv/*
-/data/*
+
 mlruns/*
 /cnn_multitask_model.pth
 
 /data
+
+/airflow/logs/*
+/airflow/data/*
+
+/data/*
+
