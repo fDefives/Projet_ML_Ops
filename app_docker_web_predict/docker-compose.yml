@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  web_predict:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlops_web_predict:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../data:/app/data:ro
+      - ./:/app
+    environment:
+      MODEL_PATH: /app/cnn_multitask_best_final.pth
+    restart: unless-stopped

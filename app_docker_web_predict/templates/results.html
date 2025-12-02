@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Résultats</title>
+  </head>
+  <body>
+    <h1>Résultats pour {{folder}}</h1>
+
+    <div>
+      <strong>Attributs:</strong>
+      <ul>
+        <li>Glasses: {{attrs['glasses']}}</li>
+        <li>Beard: {{attrs['beard']}}</li>
+        <li>Mustache: {{attrs['mustache']}}</li>
+      </ul>
+    </div>
+
+    <div style="margin:10px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+      <button id="select-all">Tout sélectionner</button>
+      <button id="clear-all">Effacer la sélection</button>
+      <button id="show-selected">Afficher la sélection</button>
+      <button id="download-selected">Télécharger CSV sélection</button>
+      <span style="margin-left:12px">Sélection: <span id="selected-count">0</span></span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <label>Barbe:
+          <select id="filter-beard"><option value="any">Any</option><option value="yes">Oui</option><option value="no">Non</option></select>
+        </label>
+        <label>Moustache:
+          <select id="filter-mustache"><option value="any">Any</option><option value="yes">Oui</option><option value="no">Non</option></select>
+        </label>
+        <label>Lunettes:
+          <select id="filter-glasses"><option value="any">Any</option><option value="yes">Oui</option><option value="no">Non</option></select>
+        </label>
+        <label>Taille cheveux:
+          <select id="filter-hair"><option value="any">Any</option><option value="0">Bald</option><option value="1">Short</option><option value="2">Long</option></select>
+        </label>
+        <label>Couleur cheveux:
+          <select id="filter-color"><option value="any">Any</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select>
+        </label>
+      </div>
+    </div>
+
+    <div id="grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;max-height:70vh;overflow:auto;padding:6px;border:1px solid #ddd;">
+      {% for r in rows %}
+        <div class="card" data-filename="{{r['filename']}}" data-glasses="{{r['glasses']}}" data-beard="{{r['beard']}}" data-mustache="{{r['mustache']}}" data-hair="{{r.get('hair', '')}}" data-color="{{r.get('color', '')}}" style="position:relative;border:1px solid #eee;padding:6px;background:#fff;border-radius:6px;">
+          <label style="display:block;cursor:pointer;">
+            <input type="checkbox" class="sel-checkbox" style="position:absolute;left:6px;top:6px;z-index:5;">
+            <img src="/images/{{folder}}/{{r['filename']}}" style="display:block;width:120px;height:120px;object-fit:cover;border-radius:4px;margin:0 auto;">
+            <div style="text-align:center;margin-top:6px;font-size:12px;">{{r['filename']}}</div>
+          </label>
+        </div>
+      {% endfor %}
+    </div>
+
+    <script>
+      const checkboxes = () => Array.from(document.querySelectorAll('.sel-checkbox'));
+      const selectedCountEl = document.getElementById('selected-count');
+      const updateCount = () => { selectedCountEl.textContent = checkboxes().filter(c=>c.checked).length };
+
+      // filters
+      const getFilterValue = (id) => document.getElementById(id).value;
+      const applyFilters = ()=>{
+        const beard = getFilterValue('filter-beard');
+        const must = getFilterValue('filter-mustache');
+        const glass = getFilterValue('filter-glasses');
+        const hair = getFilterValue('filter-hair');
+        const color = getFilterValue('filter-color');
+        document.querySelectorAll('#grid .card').forEach(card=>{
+          const vBeard = parseFloat(card.dataset.beard || 0);
+          const vMust = parseFloat(card.dataset.mustache || 0);
+          const vGlass = parseFloat(card.dataset.glasses || 0);
+          const vHair = (card.dataset.hair !== undefined && card.dataset.hair !== '') ? String(card.dataset.hair) : '';
+          const vColor = (card.dataset.color !== undefined && card.dataset.color !== '') ? String(card.dataset.color) : '';
+          let ok = true;
+          if(beard==='yes' && !(vBeard>0.5)) ok = false;
+          if(beard==='no' && (vBeard>0.5)) ok = false;
+          if(must==='yes' && !(vMust>0.5)) ok = false;
+          if(must==='no' && (vMust>0.5)) ok = false;
+          if(glass==='yes' && !(vGlass>0.5)) ok = false;
+          if(glass==='no' && (vGlass>0.5)) ok = false;
+          if(hair!=='any' && String(vHair)!==hair) ok = false;
+          if(color!=='any' && String(vColor)!==color) ok = false;
+          card.style.display = ok ? 'block' : 'none';
+        });
+        updateCount();
+      };
+
+      ['filter-beard','filter-mustache','filter-glasses','filter-hair','filter-color'].forEach(id=>{
+        document.getElementById(id).addEventListener('change', applyFilters);
+      });
+
+      document.getElementById('select-all').addEventListener('click', ()=>{
+        checkboxes().forEach(c=>c.checked = true);
+        updateCount();
+      });
+      document.getElementById('clear-all').addEventListener('click', ()=>{
+        checkboxes().forEach(c=>c.checked = false);
+        updateCount();
+      });
+
+      document.getElementById('show-selected').addEventListener('click', ()=>{
+        const cards = document.querySelectorAll('#grid .card');
+        const anySelected = checkboxes().some(c=>c.checked);
+        cards.forEach(card=>{
+          const cb = card.querySelector('.sel-checkbox');
+          if(!anySelected) { card.style.display = 'block'; return; }
+          card.style.display = (cb && cb.checked) ? 'block' : 'none';
+        });
+      });
+
+      // download selected as CSV (client-side) with readable hair/color names
+      document.getElementById('download-selected').addEventListener('click', ()=>{
+        const rows = [];
+        const colorNames = {'0':'blond','1':'châtain','2':'roux','3':'brun','4':'gris-bleu'};
+        const hairNames = {'0':'chauve','1':'court','2':'long'};
+        document.querySelectorAll('#grid .card').forEach(card=>{
+          const cb = card.querySelector('.sel-checkbox');
+          if(cb && cb.checked){
+            const color = (card.dataset.color !== undefined && card.dataset.color !== '') ? card.dataset.color : '';
+            const hair = (card.dataset.hair !== undefined && card.dataset.hair !== '') ? card.dataset.hair : '';
+            rows.push({
+              filename: card.dataset.filename,
+              glasses: card.dataset.glasses,
+              beard: card.dataset.beard,
+              mustache: card.dataset.mustache,
+              couleur_cheveux: colorNames[color] || '',
+              taille_cheveux: hairNames[hair] || '',
+            });
+          }
+        });
+        if(rows.length === 0){ alert('Aucune image sélectionnée'); return; }
+        const header = 'filename,glasses,beard,mustache,couleur_cheveux,taille_cheveux';
+        const csv = [header, ...rows.map(r=>`${r.filename},${r.glasses},${r.beard},${r.mustache},${r.couleur_cheveux},${r.taille_cheveux}`)].join('\n');
+        const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'selected.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      });
+
+      // update count when toggling
+      document.addEventListener('change', (e)=>{ if(e.target && e.target.classList && e.target.classList.contains('sel-checkbox')) updateCount() });
+
+      // initial count
+      updateCount();
+    </script>
+
+  </body>
+ </html>

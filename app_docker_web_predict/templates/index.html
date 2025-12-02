@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Web Predict</title>
+  </head>
+  <body>
+    <h1>Choisir un dossier d'images</h1>
+      <form id="predict-form" action="/predict" method="post">
+      <label for="folder">Dossier:</label>
+      <select name="folder" id="folder">
+        {% for f in folders %}
+        <option value="{{f}}">{{f}}</option>
+        {% endfor %}
+      </select>
+      <br/>
+      <label for="model_path">Chemin modèle (optionnel):</label>
+      <input type="text" name="model_path" id="model_path" placeholder="/app/cnn_multitask_model.pth">
+      <br/>
+      <button type="submit">Prétraiter &amp; Prédire</button>
+    </form>
+
+      <div id="progress-container" style="display:none;margin-top:12px;">
+        <div id="progress-text">Prêt</div>
+        <div style="width:100%;background:#eee;height:18px;border-radius:4px;margin-top:6px;">
+          <div id="progress-bar" style="width:0%;height:100%;background:#4caf50;border-radius:4px;"></div>
+        </div>
+      </div>
+
+      <script>
+      const form = document.getElementById('predict-form');
+      const progressContainer = document.getElementById('progress-container');
+      const progressBar = document.getElementById('progress-bar');
+      const progressText = document.getElementById('progress-text');
+      let pollHandle = null;
+
+      form.addEventListener('submit', async function(e){
+        e.preventDefault();
+        const fd = new FormData(form);
+        // start job
+        try{
+          const resp = await fetch('/predict', {method:'POST', body: fd});
+          const data = await resp.json();
+          if(data.status === 'started'){
+            progressContainer.style.display = 'block';
+            progressText.textContent = 'En attente...';
+            // poll
+            pollHandle = setInterval(async ()=>{
+              try{
+                const p = await fetch('/progress');
+                const js = await p.json();
+                if(js.status === 'running'){
+                  progressBar.style.width = (js.percent||0) + '%';
+                  progressText.textContent = js.message || 'processing';
+                } else if(js.status === 'done'){
+                  progressBar.style.width = '100%';
+                  progressText.textContent = 'Terminé';
+                  clearInterval(pollHandle);
+                  // redirect to results
+                  window.location.href = '/results?folder=' + encodeURIComponent(data.folder);
+                } else if(js.status === 'error'){
+                  progressText.textContent = 'Erreur: ' + (js.message||'');
+                  clearInterval(pollHandle);
+                }
+              }catch(err){
+                console.error('poll error', err);
+              }
+            }, 800);
+          } else {
+            alert('Impossible de démarrer la prédiction');
+          }
+        }catch(err){
+          alert('Erreur lors du démarrage: '+err);
+        }
+      });
+      </script>
+  </body>
+ </html>

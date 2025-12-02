@@ -30,19 +30,19 @@ from train_ml_flow import CNNMultiTask, segment_and_resize_images, TARGET_SIZE
 # ---------------------------------------------------------------------
 
 # Dossier avec les images brutes à prédire
-RAW_TEST_DIR = "data/lot2"
+RAW_TEST_DIR = "data/lot7_images"
 # Dossier où seront stockées les images segmentées + redimensionnées
-RESIZED_TEST_DIR = "data/lot2_resized"
+RESIZED_TEST_DIR = "data/lot7_resized"
 
 # Modèle entraîné
-MODEL_PATH = "cnn_multitask_model.pth"
+MODEL_PATH = "cnn_multitask_best_final.pth"
 
 # Batch size pour l'inférence
 BATCH_SIZE = 64
 
 # Fichiers de sortie
 PREDICTIONS_CSV = "predictions.csv"
-FINAL_PREDICTIONS_CSV = "final_predictions.csv"
+FINAL_PREDICTIONS_CSV = "G6_L7.csv"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -127,6 +127,7 @@ def run_inference():
 
     with torch.no_grad():
         for batch in test_loader:
+            # print(f"Traitement du batch {test_loader._index}/{len(test_loader)}", end="\r")
             images = batch["image"].to(DEVICE)
             filenames = batch["filename"]
 
@@ -194,6 +195,8 @@ def run_inference():
         "mustache": "moustache",
         "glasses": "lunettes",
     })[["image_name", "barbe", "moustache", "lunettes", "taille_cheveux", "couleur_cheveux"]]
+    # Suppression de l'extension .png dans la colonne image_name
+    final_df["image_name"] = final_df["image_name"].str.replace(".png", "", regex=False)
 
     print(final_df.head())
     final_df.to_csv(FINAL_PREDICTIONS_CSV, index=False)
