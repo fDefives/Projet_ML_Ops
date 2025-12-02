@@ -11,6 +11,8 @@ import json
 import time
 import sys
 import logging
+import tempfile
+import shutil
 
 
 class CNNMultiTask(nn.Module):
@@ -127,6 +129,27 @@ try:
 except Exception:
     pass
 
+# Ensure Python output is unbuffered so `print()` shows up immediately in docker logs
+# and configure the root logger to stream to stdout.
+try:
+    os.environ.setdefault('PYTHONUNBUFFERED', '1')
+except Exception:
+    pass
+try:
+    # Python 3.7+: make stdout line-buffered when redirected (e.g. in docker)
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+try:
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+except Exception:
+    pass
+
 def list_subfolders(root):
     if not os.path.isdir(root):
         return []
@@ -141,57 +164,25 @@ def preprocess_image(path):
     return tensor
 
 
-def predict_folder(model, folder_path, device='cpu'):
-    """
-    Backward-compatible prediction helper kept for legacy usage.
-    Prefer using `predict_using_dataset` below which leverages
-    `FaceDatasetNoLabels` and batched inference (same logic as `predict_mlflow`).
-    """
-    images = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-    results = []
-    model.to(device).eval()
-    for fname in images:
-        p = os.path.join(folder_path, fname)
-        tensor = preprocess_image(p).to(device)
-        with torch.no_grad():
-            outs = model(tensor)
-        # handle single-sample output
-        g, b, m, c, h = outs
-        prob_g = float(torch.sigmoid(g).item())
-        prob_b = float(torch.sigmoid(b).item())
-        prob_m = float(torch.sigmoid(m).item())
-        pred_c = int(torch.argmax(c, dim=1).item()) if c is not None else 0
-        pred_h = int(torch.argmax(h, dim=1).item()) if h is not None else 0
-        results.append({
-            'filename': fname,
-            'glasses': prob_g,
-            'beard': prob_b,
-            'mustache': prob_m,
-            'color': pred_c,
-            'hair': pred_h,
-        })
-    return results
-
-
 def predict_using_dataset(model, source_folder, target_size=(64, 64), batch_size=32, device='cpu', progress_callback=None):
     """
     Use `segment_and_resize_images` (from `train_ml_flow`) to produce a resized folder,
     then wrap it with `FaceDatasetNoLabels` (from `predict_mlflow`) and run batched inference.
     Returns list of dicts with keys: filename, glasses, beard, mustache, color, hair
     """
-    if FaceDatasetNoLabels is None or segment_and_resize_images is None:
-        # fallback to original per-file preprocessing
-        return predict_folder(model, source_folder, device=device)
-
-    resized_dir = os.path.join(source_folder, 'resized_64')
-    os.makedirs(resized_dir, exist_ok=True)
-    # produce resized images
+    
+    # The source folder may be mounted read-only inside the container (docker compose :ro).
+    # Create a temporary writable directory under APP_ROOT for resized images.
+    resized_dir = None
+    tmp_parent = APP_ROOT if os.path.isdir(APP_ROOT) else None
     try:
-        segment_and_resize_images(source_folder, resized_dir, target_size)
-    except Exception as e:
-        print('segment_and_resize_images failed:', e)
-        # fallback to predict_folder
-        return predict_folder(model, source_folder, device=device)
+        resized_dir = tempfile.mkdtemp(prefix='resized_', dir=tmp_parent)
+    except Exception:
+        # fallback to system temp directory
+        resized_dir = tempfile.mkdtemp(prefix='resized_')
+
+    # produce resized images into tmp dir
+    segment_and_resize_images(source_folder, resized_dir, target_size)
 
     ds = FaceDatasetNoLabels(resized_dir, transform=None)
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
@@ -205,11 +196,12 @@ def predict_using_dataset(model, source_folder, target_size=(64, 64), batch_size
             filenames = batch['filename']
             outs = model(images)
             g, b, m, c, h = outs
-            prob_g = torch.sigmoid(g).view(-1).cpu().numpy()
+            prob_g  = (torch.sigmoid(g).view(-1) > 0.5).int().cpu().numpy()
             prob_b = torch.sigmoid(b).view(-1).cpu().numpy()
             prob_m = torch.sigmoid(m).view(-1).cpu().numpy()
             pred_c = torch.argmax(c, dim=1).cpu().numpy()
             pred_h = torch.argmax(h, dim=1).cpu().numpy()
+
             for i, fname in enumerate(filenames):
                 results.append({
                     'filename': fname,
@@ -226,6 +218,11 @@ def predict_using_dataset(model, source_folder, target_size=(64, 64), batch_size
                     progress_callback(processed, total)
                 except Exception:
                     pass
+    # cleanup temporary resized folder
+    try:
+        shutil.rmtree(resized_dir, ignore_errors=True)
+    except Exception:
+        pass
     return results
 
 
@@ -247,32 +244,73 @@ def predict():
 
     # Prefer a model inside the selected folder if present
     user_model_path = request.form.get('model_path')
-    local_model_candidate = os.path.join(folder_path, 'cnn_multitask_model.pth')
+    local_model_candidate = os.path.join(folder_path, 'cnn_multitask_best_final.pth')
     if user_model_path and os.path.exists(user_model_path):
         model_path = user_model_path
     elif os.path.exists(local_model_candidate):
         model_path = local_model_candidate
     else:
-        model_path = os.path.join(APP_ROOT, 'cnn_multitask_model.pth')
+        model_path = os.path.join(APP_ROOT, 'cnn_multitask_best_final.pth')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # check model class availability
     if CNNMultiTask is None:
         return {'status': 'error', 'message': 'CNNMultiTask not available: cannot load model. Ensure train_ml_flow.py is present and importable.'}, 500
     # load model
     model = CNNMultiTask().to(device)
-    if os.path.exists(model_path):
+
+    def robust_load_state(m, path, device):
+        """Try several common checkpoint formats and adapt state_dict keys if needed."""
+        if not os.path.exists(path):
+            print('No model file found at:', path)
+            return False
         try:
-            state = torch.load(model_path, map_location=device)
-            model.load_state_dict(state)
-            print(f'Loaded model from: {model_path}')
-        except Exception:
+            ck = torch.load(path, map_location=device)
+        except Exception as e:
+            print('torch.load failed for', path, '->', e)
+            return False
+
+        # If ck is a dict, look for common keys
+        if isinstance(ck, dict):
+            for key in ('state_dict', 'model_state_dict', 'model'):
+                if key in ck and isinstance(ck[key], dict):
+                    sd = ck[key]
+                    break
+            else:
+                sd = ck
+        else:
+            sd = ck
+
+        # If state_dict keys use 'module.' prefix (DataParallel), strip it
+        if isinstance(sd, dict):
+            new_sd = {}
+            for k, v in sd.items():
+                new_k = k
+                if k.startswith('module.'):
+                    new_k = k[len('module.'):]
+                new_sd[new_k] = v
+            sd = new_sd
+
+        try:
+            m.load_state_dict(sd)
+            print(f'Loaded model from: {path}')
+            return True
+        except Exception as e:
+            print('load_state_dict failed:', e)
+            # debug: show expected vs provided keys counts
             try:
-                model.load_state_dict(torch.load(model_path, map_location=device))
-                print(f'Loaded model (fallback) from: {model_path}')
-            except Exception as e:
-                print('Failed to load model:', e)
-    else:
-        print('No model file found at:', model_path)
+                exp_keys = set(m.state_dict().keys())
+                prov_keys = set(sd.keys()) if isinstance(sd, dict) else set()
+                print(f'expected keys: {len(exp_keys)}, provided keys: {len(prov_keys)}')
+                # show small sample
+                print('expected sample keys:', list(exp_keys)[:5])
+                print('provided sample keys:', list(prov_keys)[:5])
+            except Exception:
+                pass
+            return False
+
+    loaded_ok = robust_load_state(model, model_path, device)
+    if not loaded_ok:
+        print('Model failed to load or incompatible state dict; using freshly initialized model (this may explain uniform predictions).')
 
     # start prediction in background thread and return immediately
     progress_path = os.path.join(APP_ROOT, 'progress.json')
@@ -293,15 +331,8 @@ def predict():
             write_progress({'status': 'running', 'processed': 0, 'total': 0, 'percent': 0, 'message': 'starting'})
             # call batched prediction
             results_local = []
-            try:
-                results_local = predict_using_dataset(model, folder_path, target_size=TARGET_SIZE, batch_size=32, device=device, progress_callback=progress_cb)
-            except Exception as e:
-                print('predict_using_dataset failed, falling back to single-file predict:', e)
-                # fallback: update total and then run per-file
-                images = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-                write_progress({'status': 'running', 'processed': 0, 'total': len(images), 'percent': 0, 'message': 'processing (fallback)'})
-                results_local = predict_folder(model, folder_path, device=device)
-
+            results_local = predict_using_dataset(model, folder_path, target_size=TARGET_SIZE, batch_size=32, device=device, progress_callback=progress_cb)
+          
             # save results to a CSV under app folder
             import csv
             out_csv = os.path.join(APP_ROOT, 'last_results.csv')

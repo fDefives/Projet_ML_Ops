@@ -30,9 +30,9 @@ from train_ml_flow import CNNMultiTask, segment_and_resize_images, TARGET_SIZE
 # ---------------------------------------------------------------------
 
 # Dossier avec les images brutes à prédire
-RAW_TEST_DIR = "data/lot7_images"
+RAW_TEST_DIR = "data/lot8_images"
 # Dossier où seront stockées les images segmentées + redimensionnées
-RESIZED_TEST_DIR = "data/lot7_resized"
+RESIZED_TEST_DIR = "data/lot8_resized"
 
 # Modèle entraîné
 MODEL_PATH = "cnn_multitask_best_final.pth"
@@ -42,7 +42,7 @@ BATCH_SIZE = 64
 
 # Fichiers de sortie
 PREDICTIONS_CSV = "predictions.csv"
-FINAL_PREDICTIONS_CSV = "G6_L7.csv"
+FINAL_PREDICTIONS_CSV = "G6_L8.csv"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

@@ -23,7 +23,7 @@ def collect_images(dirs, exts):
 def main():
     # paramètres en dur (plus d'arguments en ligne de commande)
     args = argparse.Namespace(
-        dirs=["data/lot4_images", "data/lot5_images"],
+        dirs=["data/lot6_images"],
         n=5000,
         out="selected_names.txt",
         exts=[".png"],
