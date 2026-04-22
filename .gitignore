@@ -12,3 +12,10 @@ mlruns/*
 
 /data/*
 
+app_docker_web_predict/data/*
+app_docker_web_predict/pycache__*/
+app_docker_web_predict/__pycache__/*
+
+*.png
+*.csv
+*.pdf
