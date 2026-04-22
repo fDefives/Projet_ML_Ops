@@ -1,9 +1,24 @@
 # MLOps
-Projet réalisé au sein du cours Mise en oeuvre du big data.
-Ce projet est un projet de classification d'image de visage sur 5 atributs: Barbe, Moustache, Couleur, Lunette, Taille Cheveux. Ce projet avait pour but de nous faire utiliser différentes technologies lié au MLOps. Nous avons donc pu désigner notre propre CNN et l'entrainer afin d'avoir les meilleurs résultats possible. 
-Je me suis chargé du design du réseau et des premiers test, j'ai ensuite mis en place l'app MLflow afin de garder en mémoire les différentes versions du modèle et de suivre l'entrainement. 
-J'ai également pu gérer les différentes tests (des lots d'images nous était données le long du projet ) afin de pouvoir réajuster les différents hyperparamètres du réseau pour tenter d'obtenir les meilleurs socres (accuracy, F1-score). Enfin j'ai mis en place Hyperopt afin de trouver les meilleurs hyperparamètres. 
-Ce projet m'a donc permis de mettre en ouevre concrétements une grane partie des connaissances de mon masters 
+## Projet – Classification d’images de visages (MLOps)
+Projet réalisé en équipe dans le cadre de l’unité d’enseignement Mise en œuvre du Big Data.
+## Objectif :
+Développement d’un modèle de classification d’images capable de prédire plusieurs attributs faciaux (barbe, moustache, couleur des cheveux, lunettes, longueur des cheveux) à partir d’un jeu de données de 20 000 images.
+Moyens mis en oeuvre : 
+La conception et l’entraînement d’un réseau de neurones convolutif (CNN)
+Le suivi des expérimentations et versioning des modèles avec MLflow
+L’optimisation des performances via recherche d’hyperparamètres avec Hyperopt
+
+## Moyens mis en œuvre :
+Conception du modèle avec la création du design de l’architecture du réseau de neurones convolutif (CNN) et la réalisation des premiers tests.
+Mise en place d’un suivi d’expérimentation avec le déploiement de MLflow (traçabilité, comparaison des modèles, reproductibilité).
+Phase de test et d’évaluation avec la gestion des jeux de données fournis pour l’évaluation des performances.
+Optimisation des performances via l’ajustement des hyperparamètres et l’implémentation d’Hyperopt pour automatiser la recherche des meilleures configurations.
+
+## Contribution personnelle :
+J’ai participé à la conception de l’architecture du CNN et à la réalisation des premiers tests. J’ai également mis en place le suivi d’expérimentation avec MLflow, contribué aux phases de test et d’évaluation en gérant les différents jeux de données, et optimisé les performances du modèle via le tuning des hyperparamètres avec Hyperopt.
+## Compétences acquises :
+Renforcement des compétences en deep learning (CNN)
+Mise en œuvre de pratiques MLOps (suivi, versioning, reproductibilité)
 
 
 ## Problème de classification : 
@@ -12,7 +27,7 @@ Ce projet m'a donc permis de mettre en ouevre concrétements une grane partie de
 - Moustache : oui/non
 - Couleur : 5 classes
 - Lunette : 2 classes 
-- Taille Cheveux : 3 classes
+- Longueur Cheveux : 3 classes
 
 ## Vecteur finale : 
     ### 11 dimensions :

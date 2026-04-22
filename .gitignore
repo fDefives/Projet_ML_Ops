@@ -10,6 +10,8 @@ mlruns/*
 /airflow/logs/*
 /airflow/data/*
 
+/airflo_testFrançis/*
+
 /data/*
 
 app_docker_web_predict/data/*
@@ -19,3 +21,4 @@ app_docker_web_predict/__pycache__/*
 *.png
 *.csv
 *.pdf
+*/txt
